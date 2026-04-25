@@ -2,6 +2,12 @@
 
 Voicebox is a self-serve voice booking widget by APPGAMBiT for Indian businesses. The flow is: configure, embed, and start taking visit bookings from any web page.
 
+## Screenshots
+
+| Landing | Setup |
+| :---: | :---: |
+| ![Voicebox landing page](./screenshots/1.png) | ![Voicebox setup page with template, details, and embed steps](./screenshots/2.png) |
+
 ## Stack
 
 - SST v4 AWS components
@@ -10,7 +16,7 @@ Voicebox is a self-serve voice booking widget by APPGAMBiT for Indian businesses
 - Cognito Hosted UI for signup/login
 - API Gateway HTTP API + Lambda for backend APIs
 - DynamoDB single-table storage for accounts, widget config, usage, and bookings
-- [xAI Voice Agent API](https://docs.x.ai/docs/guides/voice-agent) (Grok realtime) with browser-safe ephemeral tokens
+- [xAI Voice Agent API](https://x.ai/api/voice) (Grok realtime) with browser-safe ephemeral tokens
 
 ## Run
 
