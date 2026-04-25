@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { apiUrl, fetchJson, postJson, Widget } from "../lib/api";
+import { apiUrl, fetchJson, postJson, Schedule, Widget } from "../lib/api";
 import { templates, Template } from "../lib/templates";
 import { useApp } from "../lib/app-context";
+import { AvailabilityEditor } from "../components/AvailabilityEditor";
 
 const defaultTemplate = templates[2];
 
@@ -47,10 +48,16 @@ export function Setup() {
 
     try {
       const data = await postJson<{ widget: Widget }>("/widgets", idToken, {
-        ...form,
+        businessName: form.businessName,
+        serviceName: form.serviceName,
+        location: form.location,
+        languageHint: form.languageHint,
+        voice: form.voice,
+        brandColor: form.brandColor,
+        greeting: form.greeting,
         templateId: selectedTemplateId,
         category: templates.find((template) => template.id === selectedTemplateId)?.category || "custom",
-        slots: form.slots.split("\n").map((slot) => slot.trim()).filter(Boolean),
+        schedule: form.schedule,
       });
       setWidget(data.widget);
       setWidgets((current) => [data.widget, ...current.filter((item) => item.widgetId !== data.widget.widgetId)]);
@@ -147,16 +154,27 @@ export function Setup() {
           </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="mb-4 grid gap-2 text-sm font-bold text-[#38473f]">
+            <div className="mb-4 grid gap-2 text-sm font-bold text-[#38473f]">
               Voice
-              <select className="rounded-lg border border-[#c9d2cc] bg-white px-3 py-3 text-[#17201b]" value={form.voice} onChange={(event) => setForm({ ...form, voice: event.target.value })}>
-                <option value="ara">ara</option>
-                <option value="eve">eve</option>
-                <option value="rex">rex</option>
-                <option value="sal">sal</option>
-                <option value="leo">leo</option>
-              </select>
-            </label>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Agent voice">
+                {(["female", "male"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={form.voice === option}
+                    onClick={() => setForm({ ...form, voice: option })}
+                    className={`min-h-[48px] rounded-lg border px-3 py-2 text-sm font-extrabold capitalize ${
+                      form.voice === option
+                        ? "border-[#0d6b57] bg-[#e8f3ef] text-[#0d6b57]"
+                        : "border-[#c9d2cc] bg-white text-[#38473f]"
+                    }`}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
             <label className="mb-4 grid gap-2 text-sm font-bold text-[#38473f]">
               Brand color
               <input className="h-[48px] rounded-lg border border-[#c9d2cc] bg-white px-3 py-2" type="color" value={form.brandColor} onChange={(event) => setForm({ ...form, brandColor: event.target.value })} />
@@ -164,14 +182,24 @@ export function Setup() {
           </div>
 
           <label className="mb-4 grid gap-2 text-sm font-bold text-[#38473f]">
-            Starter available slots
+            Welcome greeting
             <textarea
               className="resize-y rounded-lg border border-[#c9d2cc] bg-white px-3 py-3 text-[#17201b]"
-              value={form.slots}
-              onChange={(event) => setForm({ ...form, slots: event.target.value })}
-              rows={4}
+              value={form.greeting}
+              onChange={(event) => setForm({ ...form, greeting: event.target.value })}
+              rows={2}
+              placeholder="Namaste! ... mein aapka swagat hai. ..."
             />
+            <span className="text-xs font-normal text-[#66746d]">Spoken by the agent as soon as the call connects.</span>
           </label>
+
+          <div className="mb-4 grid gap-2">
+            <span className="text-sm font-bold text-[#38473f]">Availability</span>
+            <AvailabilityEditor
+              value={form.schedule}
+              onChange={(schedule: Schedule) => setForm({ ...form, schedule })}
+            />
+          </div>
 
           {error ? <p className="mb-3 text-sm text-[#9e2929]">{error}</p> : null}
           <button
@@ -200,7 +228,7 @@ export function Setup() {
                   <span className="h-11 w-11 shrink-0 rounded-full" style={{ background: widget.brandColor }} />
                   <div>
                     <strong>{widget.businessName}</strong>
-                    <p className="mt-1 text-sm text-[#66746d]">{widget.category} · {widget.languageHint} · {widget.slots.length} starter slots</p>
+                    <p className="mt-1 text-sm text-[#66746d]">{widget.category} · {widget.languageHint} · {scheduleSummary(widget.schedule)}</p>
                   </div>
                 </div>
               </>
@@ -280,6 +308,26 @@ function formFromTemplate(template: Template) {
     languageHint: template.languageHint,
     voice: template.voice,
     brandColor: template.brandColor,
-    slots: template.slots,
+    greeting: template.greeting,
+    schedule: cloneSchedule(template.schedule),
+  };
+}
+
+function scheduleSummary(schedule: Schedule | undefined) {
+  if (!schedule) return "no schedule";
+  const openDays = schedule.weeklyHours.filter((day) => day.ranges.length > 0).length;
+  return `${openDays} open days · ${schedule.slotMinutes} min slots`;
+}
+
+function cloneSchedule(schedule: Schedule): Schedule {
+  return {
+    timezone: schedule.timezone,
+    slotMinutes: schedule.slotMinutes,
+    leadTimeMinutes: schedule.leadTimeMinutes,
+    horizonDays: schedule.horizonDays,
+    weeklyHours: schedule.weeklyHours.map((day) => ({
+      weekday: day.weekday,
+      ranges: day.ranges.map((range) => ({ ...range })),
+    })),
   };
 }

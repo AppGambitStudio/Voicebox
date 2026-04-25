@@ -3,6 +3,16 @@ export const authDomain = import.meta.env.VITE_AUTH_DOMAIN || "";
 export const userPoolClientId = import.meta.env.VITE_USER_POOL_CLIENT_ID || "";
 export const tokenKey = "voice-booking-id-token";
 
+export type TimeRange = { open: string; close: string };
+export type WeekdaySchedule = { weekday: number; ranges: TimeRange[] };
+export type Schedule = {
+  timezone: string;
+  weeklyHours: WeekdaySchedule[];
+  slotMinutes: number;
+  leadTimeMinutes: number;
+  horizonDays: number;
+};
+
 export type Widget = {
   widgetId: string;
   businessName: string;
@@ -14,7 +24,24 @@ export type Widget = {
   templateId: string;
   category: string;
   slots: string[];
+  schedule?: Schedule;
+  greeting: string;
 };
+
+export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+export function defaultSchedule(): Schedule {
+  return {
+    timezone: "Asia/Kolkata",
+    slotMinutes: 30,
+    leadTimeMinutes: 60,
+    horizonDays: 14,
+    weeklyHours: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+      weekday,
+      ranges: weekday === 0 ? [] : weekday === 6 ? [{ open: "10:00", close: "17:00" }] : [{ open: "10:00", close: "19:00" }],
+    })),
+  };
+}
 
 export type Account = {
   tenantId: string;

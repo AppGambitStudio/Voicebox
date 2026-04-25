@@ -5,6 +5,16 @@ import { Resource } from "sst";
 
 const FREE_PLAN_MONTHLY_CALLS = 20;
 
+type TimeRange = { open: string; close: string };
+type WeekdaySchedule = { weekday: number; ranges: TimeRange[] };
+type Schedule = {
+  timezone: string;
+  weeklyHours: WeekdaySchedule[];
+  slotMinutes: number;
+  leadTimeMinutes: number;
+  horizonDays: number;
+};
+
 type WidgetConfig = {
   widgetId: string;
   tenantId: string;
@@ -17,8 +27,26 @@ type WidgetConfig = {
   templateId: string;
   category: string;
   slots: string[];
+  schedule?: Schedule;
+  greeting: string;
   createdAt: string;
   updatedAt: string;
+};
+
+const DEFAULT_SCHEDULE: Schedule = {
+  timezone: "Asia/Kolkata",
+  weeklyHours: [
+    { weekday: 0, ranges: [] },
+    { weekday: 1, ranges: [{ open: "10:00", close: "19:00" }] },
+    { weekday: 2, ranges: [{ open: "10:00", close: "19:00" }] },
+    { weekday: 3, ranges: [{ open: "10:00", close: "19:00" }] },
+    { weekday: 4, ranges: [{ open: "10:00", close: "19:00" }] },
+    { weekday: 5, ranges: [{ open: "10:00", close: "19:00" }] },
+    { weekday: 6, ranges: [{ open: "10:00", close: "17:00" }] },
+  ],
+  slotMinutes: 30,
+  leadTimeMinutes: 60,
+  horizonDays: 14,
 };
 
 type BookingInput = {
@@ -112,8 +140,11 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     const slotsMatch = path.match(/^\/widgets\/([^/]+)\/slots$/);
     if (slotsMatch && method === "GET") {
       const widget = await requireWidget(slotsMatch[1]);
+      if (widget.schedule) {
+        return json(200, { slots: computeSlots(widget.schedule), source: "schedule" });
+      }
       return json(200, {
-        slots: widget.slots.map((slot) => ({ value: slot, available: true, source: "configured" })),
+        slots: widget.slots.map((slot) => ({ value: slot, label: slot, available: true, source: "configured" })),
       });
     }
 
@@ -129,20 +160,22 @@ async function createWidget(auth: AuthContext, input: Record<string, unknown>) {
   const now = new Date().toISOString();
   const tenantId = auth.userId;
   const widgetId = crypto.randomUUID();
+  const businessName = asText(input.businessName) || "Aarav Jewels";
+  const serviceName = asText(input.serviceName) || "Store visit";
   const widget: WidgetConfig = {
     widgetId,
     tenantId,
-    businessName: asText(input.businessName) || "Aarav Jewels",
-    serviceName: asText(input.serviceName) || "Store visit",
+    businessName,
+    serviceName,
     location: asText(input.location) || "Ahmedabad",
     languageHint: asText(input.languageHint) || "Hindi, English, Hinglish",
-    voice: asText(input.voice) || "ara",
+    voice: asText(input.voice) || "female",
     brandColor: asText(input.brandColor) || "#0d6b57",
     templateId: asText(input.templateId) || "custom",
     category: asText(input.category) || "custom",
-    slots: asStringArray(input.slots).length
-      ? asStringArray(input.slots)
-      : ["Tomorrow 11:00 AM", "Tomorrow 4:30 PM", "Saturday 12:00 PM"],
+    slots: asStringArray(input.slots),
+    schedule: normalizeSchedule(input.schedule) || DEFAULT_SCHEDULE,
+    greeting: asText(input.greeting) || `Namaste! ${businessName} mein aapka swagat hai. ${serviceName} book karni hai ya kuch aur poochhna hai?`,
     createdAt: now,
     updatedAt: now,
   };
@@ -671,4 +704,155 @@ function normalizeBookingStatus(value: unknown) {
 
 function isConditionalCheckFailed(error: unknown) {
   return error instanceof Error && error.name === "ConditionalCheckFailedException";
+}
+
+function normalizeSchedule(value: unknown): Schedule | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const timezone = asText(raw.timezone) || "Asia/Kolkata";
+  const slotMinutes = clampInt(raw.slotMinutes, 5, 240, 30);
+  const leadTimeMinutes = clampInt(raw.leadTimeMinutes, 0, 24 * 60 * 7, 60);
+  const horizonDays = clampInt(raw.horizonDays, 1, 60, 14);
+  const weeklyHoursInput = Array.isArray(raw.weeklyHours) ? raw.weeklyHours : [];
+  const byDay = new Map<number, TimeRange[]>();
+  for (let day = 0; day <= 6; day += 1) byDay.set(day, []);
+  for (const entry of weeklyHoursInput) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as Record<string, unknown>;
+    const weekday = clampInt(candidate.weekday, 0, 6, -1);
+    if (weekday < 0) continue;
+    const ranges = Array.isArray(candidate.ranges) ? candidate.ranges : [];
+    const sanitized: TimeRange[] = [];
+    for (const range of ranges) {
+      if (!range || typeof range !== "object") continue;
+      const r = range as Record<string, unknown>;
+      const open = asTime(r.open);
+      const close = asTime(r.close);
+      if (!open || !close) continue;
+      if (timeToMinutes(close) <= timeToMinutes(open)) continue;
+      sanitized.push({ open, close });
+    }
+    sanitized.sort((a, b) => timeToMinutes(a.open) - timeToMinutes(b.open));
+    byDay.set(weekday, sanitized);
+  }
+  return {
+    timezone,
+    slotMinutes,
+    leadTimeMinutes,
+    horizonDays,
+    weeklyHours: Array.from(byDay.entries()).map(([weekday, ranges]) => ({ weekday, ranges })),
+  };
+}
+
+function computeSlots(schedule: Schedule, limit = 12) {
+  const now = new Date();
+  const earliestUtc = new Date(now.getTime() + schedule.leadTimeMinutes * 60_000);
+  const horizonUtc = new Date(now.getTime() + schedule.horizonDays * 24 * 60 * 60_000);
+  const tz = schedule.timezone || "Asia/Kolkata";
+  const dayMs = 24 * 60 * 60_000;
+  const todayInTz = new Date(formatInTz(now, tz, "yyyy-MM-dd") + "T00:00:00");
+  const slots: Array<{ value: string; label: string; available: boolean; source: string }> = [];
+
+  for (let dayOffset = 0; slots.length < limit && dayOffset <= schedule.horizonDays; dayOffset += 1) {
+    const dayDate = new Date(todayInTz.getTime() + dayOffset * dayMs);
+    const weekday = computeWeekdayInTz(dayDate, tz);
+    const ranges = schedule.weeklyHours.find((entry) => entry.weekday === weekday)?.ranges || [];
+    for (const range of ranges) {
+      const startMinutes = timeToMinutes(range.open);
+      const endMinutes = timeToMinutes(range.close);
+      for (let mins = startMinutes; mins + schedule.slotMinutes <= endMinutes; mins += schedule.slotMinutes) {
+        const isoLocal = `${formatInTz(dayDate, tz, "yyyy-MM-dd")}T${minutesToTime(mins)}:00`;
+        const slotUtc = zonedDateTimeToUtc(isoLocal, tz);
+        if (slotUtc.getTime() < earliestUtc.getTime()) continue;
+        if (slotUtc.getTime() > horizonUtc.getTime()) break;
+        slots.push({
+          value: isoLocal,
+          label: formatSlotLabel(slotUtc, tz),
+          available: true,
+          source: "schedule",
+        });
+        if (slots.length >= limit) break;
+      }
+      if (slots.length >= limit) break;
+    }
+  }
+
+  return slots;
+}
+
+function asTime(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return "";
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return "";
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function timeToMinutes(time: string) {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function minutesToTime(minutes: number) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number) {
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(num)));
+}
+
+function formatInTz(date: Date, timezone: string, pattern: "yyyy-MM-dd") {
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" });
+  if (pattern === "yyyy-MM-dd") return formatter.format(date);
+  return formatter.format(date);
+}
+
+function computeWeekdayInTz(date: Date, timezone: string) {
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" });
+  const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return labels.indexOf(formatter.format(date));
+}
+
+function zonedDateTimeToUtc(isoLocal: string, timezone: string): Date {
+  const [datePart, timePart] = isoLocal.split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
+  const guess = Date.UTC(year, month - 1, day, hour, minute);
+  const tzOffsetMinutes = timezoneOffsetMinutes(new Date(guess), timezone);
+  return new Date(guess - tzOffsetMinutes * 60_000);
+}
+
+function timezoneOffsetMinutes(date: Date, timezone: string) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || "0");
+  const asUTC = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return Math.round((asUTC - date.getTime()) / 60_000);
+}
+
+function formatSlotLabel(date: Date, timezone: string) {
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: timezone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
 }
