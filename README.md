@@ -106,3 +106,7 @@ The current `slots` endpoint computes availability from each widget's weekly sch
 - [xAI Voice Agent docs](https://docs.x.ai/docs/guides/voice-agent) — realtime WebSocket API, tools, ephemeral tokens
 - [xAI API console](https://console.x.ai/) — get your `XAI_API_KEY`
 - [SST v4 docs](https://sst.dev/docs/) — components used: `Dynamo`, `CognitoUserPool`, `ApiGatewayV2`, `StaticSite`
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
