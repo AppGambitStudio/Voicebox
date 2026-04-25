@@ -40,7 +40,7 @@ export default $config({
     });
 
     const localUrl = "http://localhost:5173";
-    const deployedUrls = (process.env.APP_URL || "https://dqmi0ccfvisc2.cloudfront.net")
+    const deployedUrls = (process.env.APP_URL || "")
       .split(",")
       .map((url) => url.trim().replace(/\/+$/, ""))
       .filter(Boolean);

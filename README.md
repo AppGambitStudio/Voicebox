@@ -10,26 +10,40 @@ Voicebox is a self-serve voice booking widget by APPGAMBiT for Indian businesses
 - Cognito Hosted UI for signup/login
 - API Gateway HTTP API + Lambda for backend APIs
 - DynamoDB single-table storage for accounts, widget config, usage, and bookings
-- xAI Voice Agent API (Grok realtime) with browser-safe ephemeral tokens
+- [xAI Voice Agent API](https://docs.x.ai/docs/guides/voice-agent) (Grok realtime) with browser-safe ephemeral tokens
 
 ## Run
 
 ```sh
 cp .env.example .env
+# put your real xAI key in .env
 npm install
-XAI_API_KEY=xai-your-api-key npm run dev
+npm run dev
 ```
 
 SST prints the deployed API URL and starts the Vite app in dev mode.
+
+## Deploy
+
+```sh
+# first deploy — generates the CloudFront URL
+npx sst deploy
+
+# read the printed `web` URL, then redeploy with it set
+# (this registers it as a Cognito callback so hosted-UI sign-in works)
+APP_URL="https://your-xxxxxxx.cloudfront.net" npx sst deploy
+```
+
+If you later add a custom domain, set `APP_URL` to that origin instead.
 
 ## Product Flow
 
 1. New user signs up with Cognito.
 2. The post-confirmation trigger creates a DynamoDB account on the default free plan.
 3. Pick a pre-configured template: clinic appointment, salon visit, jewellery store, property site visit, or restaurant table.
-4. Adjust business name, booking type, location, languages, voice, brand color, and starter slots.
+4. Adjust business name, booking type, location, languages, voice (Female / Male), brand color, weekly availability, and welcome greeting.
 5. Store the widget config, selected template, and category in DynamoDB under the signed-in tenant.
-6. Generate an embed snippet.
+6. Generate an embed snippet and test it in the dashboard preview iframe.
 7. Paste the snippet into any website.
 8. Visitor speaks Hindi, English, or Hinglish and books a visit.
 
@@ -63,7 +77,7 @@ Add `data-preview="1"` to mount the widget in test mode (no usage counted, no bo
 - `POST /widgets` creates a widget config for the signed-in tenant.
 - `GET /widgets/{widgetId}` returns public widget config.
 - `POST /widgets/{widgetId}/session` creates a 5-minute xAI ephemeral token. Pass `{ "preview": true }` in the body to mint a token without reserving a call against the monthly limit (used by the in-dashboard test panel).
-- `GET /widgets/{widgetId}/slots` returns configured starter slots.
+- `GET /widgets/{widgetId}/slots` returns the next bookable slots computed from the widget's weekly schedule (IST), with a fallback to legacy free-text slots for older widgets.
 - `POST /widgets/{widgetId}/calls/{callId}/complete` stores call duration and transcript, then moves the call from pending to consumed.
 - `POST /widgets/{widgetId}/bookings` stores a confirmed visit booking.
 - `GET /widgets/{widgetId}/bookings` lists recent bookings for the signed-in tenant.
@@ -85,4 +99,10 @@ Activity records include `activityType` for dashboard buckets:
 
 ## Next Slot-Sync Integration
 
-The current `slots` endpoint returns configured mock slots. The intended next step is to swap that resolver for a provider boundary that can sync availability from calendars, CRMs, or vertical systems while keeping the widget and voice tool contract stable.
+The current `slots` endpoint computes availability from each widget's weekly schedule. The next step is to swap the computation for a provider boundary that can sync from external calendars (Google Calendar, Cal.com, Calendly) or vertical systems, while keeping the widget and voice tool contract stable.
+
+## References
+
+- [xAI Voice Agent docs](https://docs.x.ai/docs/guides/voice-agent) — realtime WebSocket API, tools, ephemeral tokens
+- [xAI API console](https://console.x.ai/) — get your `XAI_API_KEY`
+- [SST v4 docs](https://sst.dev/docs/) — components used: `Dynamo`, `CognitoUserPool`, `ApiGatewayV2`, `StaticSite`
