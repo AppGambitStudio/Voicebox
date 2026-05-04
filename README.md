@@ -18,6 +18,67 @@ Voicebox is a self-serve voice booking widget by APPGAMBiT for Indian businesses
 - DynamoDB single-table storage for accounts, widget config, usage, and bookings
 - [xAI Voice Agent API](https://x.ai/api/voice) (Grok realtime) with browser-safe ephemeral tokens
 
+## Architecture
+
+```
+                  ┌──────────────────────────────────────────────┐
+                  │           Voicebox Architecture              │
+                  └──────────────────────────────────────────────┘
+
+  Tenant admin                        End user (on customer's site)
+       │                                        │
+       │ HTTPS                                  │ HTTPS
+       ▼                                        ▼
+  ┌──────────────────────────────────────────────────────────────┐
+  │                       CloudFront (CDN)                       │
+  └────────┬────────────────────────────────────┬────────────────┘
+           │ static (HTML/JS/CSS/embed.js)      │ /login redirect
+           ▼                                    ▼
+  ┌──────────────────────┐             ┌────────────────────────┐
+  │ S3 (StaticSite)      │             │ Cognito Hosted UI      │
+  │  ├─ index.html       │             │ + User Pool            │
+  │  ├─ preview.html     │             │ (post-confirm Lambda   │
+  │  ├─ assets/*.js,*.css│             │  seeds tenant in DDB)  │
+  │  └─ embed/widget.js  │             └───────────┬────────────┘
+  └──────────────────────┘                         │
+                                                   │ id_token (implicit)
+                ┌──────────────────────────────────┘
+                │ Authorization: Bearer
+                ▼
+  ┌──────────────────────────────────────────────────────────────┐
+  │                    API Gateway HTTP API                      │
+  │   /me  /dashboard  /calendar  /widgets  /widgets/{id}/...    │
+  └─────────────────────────────┬────────────────────────────────┘
+                                │ application/json only
+                                ▼
+                         ┌──────────────┐
+                         │   Lambda     │
+                         │  (Node 22)   │
+                         └──────┬───────┘
+                                │
+                                ▼
+                         ┌──────────────┐
+                         │  DynamoDB    │
+                         │ single table │
+                         │ pk/sk + GSI1 │
+                         └──────────────┘
+
+  ── voice audio bypasses our infra entirely ──
+
+   End user browser ═══ WebSocket ═══► wss://api.x.ai/v1/realtime
+                   (ephemeral token from POST /widgets/{id}/session)
+
+  Boundary
+   • Static UI + embed script  →  S3 + CloudFront (no Lambda)
+   • JSON API + tenant data    →  API Gateway → Lambda → DynamoDB
+   • Voice audio bytes         →  browser ↔ xAI directly
+```
+
+The customer-facing embed script (`/embed/voice-booking-widget.js`) is served from
+the same CloudFront distribution, so 3rd-party sites that paste the snippet pull
+it from S3 + CloudFront — no Lambda hop. The Lambda only ever returns
+`application/json`; voice audio never traverses our infrastructure.
+
 ## Run
 
 ```sh

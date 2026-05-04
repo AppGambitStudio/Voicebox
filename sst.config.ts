@@ -60,7 +60,7 @@ export default $config({
 
     const api = new sst.aws.ApiGatewayV2("Api", {
       cors: {
-        allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+        allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allowOrigins: ["*"],
         allowHeaders: ["Content-Type", "Authorization"],
       },
@@ -90,6 +90,7 @@ export default $config({
     api.route("GET /widgets", apiHandler, { auth: { jwt: { authorizer: authorizer.id } } });
     api.route("POST /widgets", apiHandler, { auth: { jwt: { authorizer: authorizer.id } } });
     api.route("GET /widgets/{widgetId}", apiHandler);
+    api.route("DELETE /widgets/{widgetId}", apiHandler, { auth: { jwt: { authorizer: authorizer.id } } });
     api.route("POST /widgets/{widgetId}/session", apiHandler);
     api.route("GET /widgets/{widgetId}/slots", apiHandler);
     api.route("POST /widgets/{widgetId}/calls/{callId}/complete", apiHandler);

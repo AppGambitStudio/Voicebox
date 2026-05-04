@@ -147,7 +147,7 @@
       ? Math.max(0, Math.round((Date.now() - state.callStartedAt) / 1000))
       : 0;
     state.activeSources.forEach((source) => {
-      try { source.stop(); } catch (_) {}
+      try { source.stop(); } catch (_) { }
     });
     state.activeSources = [];
     state.nextPlayTime = 0;
@@ -196,8 +196,9 @@
       state.ws = ws;
       ws.addEventListener("open", () => {
         send({ type: "session.update", session: sessionConfig() });
-        const greeting = (state.config?.greeting && state.config.greeting.trim())
+        const rawGreeting = (state.config?.greeting && state.config.greeting.trim())
           || `Namaste! ${state.config?.businessName || "the business"} mein aapka swagat hai. Aapki kya madad kar sakta hoon?`;
+        const greeting = applyPlaceholders(rawGreeting, state.config || {});
         send({
           type: "response.create",
           response: {
@@ -229,20 +230,26 @@
     const slotLabels = state.slots.length
       ? state.slots.map((slot) => slot.label || slot.value).slice(0, 12).join(", ")
       : (Array.isArray(config.slots) ? config.slots : []).join(", ");
+    const agentGender = config.agentGender === "male" ? "male" : "female";
+    const agentName = config.agentName || (agentGender === "male" ? "Arjun" : "Aanya");
+    const grammarHint = agentGender === "male"
+      ? "Speak as a male. In Hindi use male first-person verb forms (raha, karunga, hoon)."
+      : "Speak as a female. In Hindi use female first-person verb forms (rahi, karungi, hoon).";
     return {
       voice: resolveVoice(config.voice),
       instructions: [
-        `You are a concise voice booking agent for ${config.businessName} in ${config.location}.`,
-        `The current date and time in India (IST) is ${istDateTime}. Today's date is ${istDateOnly}.`,
-        "When the visitor says \"aaj\" / \"today\", use today's date. \"Kal\" / \"tomorrow\" is the next calendar day. Compute named weekdays (e.g. \"Saturday\", \"shanivaar\") relative to today. Always confirm the absolute date back to the visitor before booking.",
-        `Help Indian website visitors book a ${config.serviceName} within five minutes.`,
-        `Users may speak ${config.languageHint}. Reply in the same language style.`,
-        "Use Indian conventions: INR, 10-digit mobile numbers, subah/shaam/kal when appropriate.",
+        `You are ${agentName}, a polite voice booking receptionist for ${config.businessName} in ${config.location}.`,
+        grammarHint,
+        `Today is ${istDateOnly}. Current IST time is ${istDateTime}. Resolve "aaj"/today, "kal"/tomorrow, and named weekdays from this date. Confirm the absolute date back before booking.`,
+        `Visitor may speak ${config.languageHint}. Match their language. Use Indian conventions (INR, subah/shaam).`,
         slotLabels
-          ? `Real available slots (live from the business calendar) are: ${slotLabels}. Offer these when the visitor asks for a time. If they request something else, suggest the closest listed slot. Do not invent times outside this list.`
-          : "There are no published availability slots right now. Politely ask the visitor for their preferred date and time, then confirm the business will get back to them.",
-        "Before booking, collect name, 10-digit mobile number, preferred date (as YYYY-MM-DD), and preferred time (as HH:MM in 24-hour clock).",
-        "Confirm once, then call book_visit. Keep replies to one or two short sentences.",
+          ? `Available slots: ${slotLabels}. Offer these. If they want a different time, suggest the nearest listed slot. Never invent times.`
+          : "No published slots. Ask the visitor's preferred date and time and tell them the business will confirm.",
+        "Goal: book one visit by collecting name, 10-digit mobile, date (YYYY-MM-DD), and time (HH:MM 24-hour).",
+        "Ask one question at a time in this order: service, date, time, name, mobile. Acknowledge briefly between answers. Never bundle questions.",
+        "Mobile numbers in India are dictated digit by digit. Treat each spoken digit as one digit and concatenate to exactly 10 contiguous digits. Accept English and Hindi digit names and treat 'double'/'triple' as repeats. Never read a sequence of digits as a single big number.",
+        "After collecting the mobile, repeat it back digit by digit and ask for confirmation. Do the same in the final summary.",
+        "Give one short summary at the end and wait for a yes/haan before calling book_visit. Replies stay to one short sentence.",
       ].join("\n"),
       turn_detection: { type: "server_vad", threshold: 0.85, silence_duration_ms: 900, prefix_padding_ms: 333 },
       audio: {
@@ -257,7 +264,10 @@
           type: "object",
           properties: {
             name: { type: "string" },
-            mobile: { type: "string" },
+            mobile: {
+              type: "string",
+              description: "Exactly 10 digits, no spaces or country code.",
+            },
             preferredDate: { type: "string" },
             preferredTime: { type: "string" },
             service: { type: "string" },
@@ -360,6 +370,15 @@
     const map = { female: "ara", male: "rex", eve: "ara", sal: "rex", leo: "rex" };
     const normalized = (value || "female").toLowerCase();
     return map[normalized] || normalized || "ara";
+  }
+
+  function applyPlaceholders(template, config) {
+    return String(template || "")
+      .replace(/\{agent-name\}/g, config.agentName || "")
+      .replace(/\{business-name\}/g, config.businessName || "")
+      .replace(/\{service-name\}/g, config.serviceName || "")
+      .replace(/\{location\}/g, config.location || "")
+      .replace(/\{languages\}/g, config.languageHint || "");
   }
 
   function escapeHtml(value) {

@@ -1,5 +1,37 @@
 import type { Schedule } from "./api";
 
+export type AgentGender = "female" | "male";
+
+export type GreetingVars = {
+  agentName: string;
+  businessName: string;
+  serviceName: string;
+  location: string;
+  languageHint?: string;
+};
+
+export const GREETING_PLACEHOLDERS = [
+  "{agent-name}",
+  "{business-name}",
+  "{service-name}",
+  "{location}",
+  "{languages}",
+] as const;
+
+export function applyPlaceholders(template: string, vars: GreetingVars): string {
+  return template
+    .replace(/\{agent-name\}/g, vars.agentName || "")
+    .replace(/\{business-name\}/g, vars.businessName || "")
+    .replace(/\{service-name\}/g, vars.serviceName || "")
+    .replace(/\{location\}/g, vars.location || "")
+    .replace(/\{languages\}/g, vars.languageHint || "");
+}
+
+export function buildGreeting(opts: { agentGender: AgentGender }): string {
+  const verb = opts.agentGender === "female" ? "bol rahi hoon" : "bol raha hoon";
+  return `Namaste! Main {agent-name} ${verb}, {business-name} se. {service-name} book karni hai ya kuch aur poochhna hai?`;
+}
+
 export type Template = {
   id: string;
   category: string;
@@ -10,6 +42,8 @@ export type Template = {
   location: string;
   languageHint: string;
   voice: string;
+  agentName: string;
+  agentGender: AgentGender;
   brandColor: string;
   slots: string;
   greeting: string;
@@ -87,11 +121,13 @@ export const templates: Template[] = [
     businessName: "Shree Care Clinic",
     serviceName: "Doctor appointment",
     location: "Ahmedabad",
-    languageHint: "Hindi, English, Gujarati, Hinglish",
+    languageHint: "Hindi, English",
     voice: "female",
+    agentName: "Aanya",
+    agentGender: "female",
     brandColor: "#0d6b57",
     slots: "Tomorrow 10:30 AM\nTomorrow 5:00 PM\nSaturday 11:45 AM",
-    greeting: "Namaste! Shree Care Clinic mein aapka swagat hai. Doctor appointment book karni hai?",
+    greeting: "Namaste! Main {agent-name} bol rahi hoon, {business-name} se. {service-name} book karni hai?",
     schedule: sixDayClinic,
   },
   {
@@ -102,11 +138,13 @@ export const templates: Template[] = [
     businessName: "Glow Studio",
     serviceName: "Salon visit",
     location: "Mumbai",
-    languageHint: "Hindi, English, Marathi, Hinglish",
+    languageHint: "Hindi, English",
     voice: "female",
+    agentName: "Riya",
+    agentGender: "female",
     brandColor: "#8b3a62",
     slots: "Today 6:30 PM\nTomorrow 1:00 PM\nSunday 4:00 PM",
-    greeting: "Hi! Glow Studio mein aapka swagat hai. Aap kaunsi service ke liye visit book karna chahti hain?",
+    greeting: "Hi! Main {agent-name} hoon, {business-name} se. Aap kaunsi service ke liye visit book karna chahti hain?",
     schedule: salonAllWeek,
   },
   {
@@ -117,11 +155,13 @@ export const templates: Template[] = [
     businessName: "Aarav Jewels",
     serviceName: "Store visit",
     location: "Surat",
-    languageHint: "Hindi, English, Gujarati, Hinglish",
+    languageHint: "Hindi, English",
     voice: "female",
+    agentName: "Aarti",
+    agentGender: "female",
     brandColor: "#9f6b1d",
     slots: "Tomorrow 11:00 AM\nTomorrow 4:30 PM\nSaturday 12:00 PM",
-    greeting: "Namaste! Aarav Jewels mein aapka swagat hai. Showroom visit book karni hai ya jewellery ke baare mein kuch jaanna hai?",
+    greeting: "Namaste! Main {agent-name} bol rahi hoon, {business-name} se. {service-name} book karni hai ya jewellery ke baare mein kuch jaanna hai?",
     schedule: retailWeekend,
   },
   {
@@ -132,11 +172,13 @@ export const templates: Template[] = [
     businessName: "MetroNest Realty",
     serviceName: "Property site visit",
     location: "Bengaluru",
-    languageHint: "Hindi, English, Kannada, Hinglish",
+    languageHint: "Hindi, English",
     voice: "male",
+    agentName: "Arjun",
+    agentGender: "male",
     brandColor: "#285b7a",
     slots: "Tomorrow 12:00 PM\nSaturday 10:30 AM\nSunday 5:00 PM",
-    greeting: "Namaste! MetroNest Realty se baat kar rahe hain. Property site visit book karni hai?",
+    greeting: "Namaste! Main {agent-name} bol raha hoon, {business-name} se. {service-name} book karni hai?",
     schedule: realEstateAppointments,
   },
   {
@@ -147,11 +189,13 @@ export const templates: Template[] = [
     businessName: "Masala House",
     serviceName: "Table reservation",
     location: "Delhi NCR",
-    languageHint: "Hindi, English, Hinglish",
+    languageHint: "Hindi, English",
     voice: "male",
+    agentName: "Vikram",
+    agentGender: "male",
     brandColor: "#b4432d",
     slots: "Today 8:00 PM\nTomorrow 7:30 PM\nSunday 1:00 PM",
-    greeting: "Hello! Masala House mein aapka swagat hai. Table reserve karni hai? Kitne log aane wale hain?",
+    greeting: "Hello! Main {agent-name} hoon, {business-name} se. Table reserve karni hai? Kitne log aane wale hain?",
     schedule: restaurantEvenings,
   },
 ];

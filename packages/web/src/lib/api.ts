@@ -20,6 +20,8 @@ export type Widget = {
   location: string;
   languageHint: string;
   voice: string;
+  agentName: string;
+  agentGender: "female" | "male";
   brandColor: string;
   templateId: string;
   category: string;
@@ -100,6 +102,17 @@ export function postJson<T>(path: string, token: string, payload: unknown): Prom
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(payload),
+  }).then(async (response) => {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Request failed");
+    return data;
+  });
+}
+
+export function deleteJson<T>(path: string, token: string): Promise<T> {
+  return fetch(`${apiUrl}${path}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
   }).then(async (response) => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Request failed");

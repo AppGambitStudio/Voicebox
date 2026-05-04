@@ -1,6 +1,6 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchWriteCommand, DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { Resource } from "sst";
 
 const FREE_PLAN_MONTHLY_CALLS = 20;
@@ -23,6 +23,8 @@ type WidgetConfig = {
   location: string;
   languageHint: string;
   voice: string;
+  agentName: string;
+  agentGender: "female" | "male";
   brandColor: string;
   templateId: string;
   category: string;
@@ -111,6 +113,10 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     if (method === "GET" && widgetMatch) {
       return json(200, { widget: await requireWidget(widgetMatch[1]) });
     }
+    if (method === "DELETE" && widgetMatch) {
+      const auth = requireAuth(event);
+      return json(200, await deleteWidget(auth, widgetMatch[1]));
+    }
 
     const sessionMatch = path.match(/^\/widgets\/([^/]+)\/session$/);
     if (method === "POST" && sessionMatch) {
@@ -162,6 +168,8 @@ async function createWidget(auth: AuthContext, input: Record<string, unknown>) {
   const widgetId = crypto.randomUUID();
   const businessName = asText(input.businessName) || "Aarav Jewels";
   const serviceName = asText(input.serviceName) || "Store visit";
+  const agentGender = asText(input.agentGender) === "male" ? "male" : "female";
+  const agentName = asText(input.agentName) || (agentGender === "male" ? "Arjun" : "Aanya");
   const widget: WidgetConfig = {
     widgetId,
     tenantId,
@@ -170,12 +178,14 @@ async function createWidget(auth: AuthContext, input: Record<string, unknown>) {
     location: asText(input.location) || "Ahmedabad",
     languageHint: asText(input.languageHint) || "Hindi, English, Hinglish",
     voice: asText(input.voice) || "female",
+    agentName,
+    agentGender,
     brandColor: asText(input.brandColor) || "#0d6b57",
     templateId: asText(input.templateId) || "custom",
     category: asText(input.category) || "custom",
     slots: asStringArray(input.slots),
     schedule: normalizeSchedule(input.schedule) || DEFAULT_SCHEDULE,
-    greeting: asText(input.greeting) || `Namaste! ${businessName} mein aapka swagat hai. ${serviceName} book karni hai ya kuch aur poochhna hai?`,
+    greeting: asText(input.greeting) || `Namaste! Main {agent-name} ${agentGender === "male" ? "bol raha hoon" : "bol rahi hoon"}, {business-name} se. {service-name} book karni hai ya kuch aur poochhna hai?`,
     createdAt: now,
     updatedAt: now,
   };
@@ -212,6 +222,49 @@ async function listTenantWidgets(tenantId: string) {
   );
 
   return { widgets: result.Items || [] };
+}
+
+async function deleteWidget(auth: AuthContext, widgetId: string) {
+  const widget = await requireWidget(widgetId);
+  if (widget.tenantId !== auth.userId) {
+    throw new Error("Widget not found");
+  }
+
+  const pk = `WIDGET#${widgetId}`;
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  const sortKeys: string[] = [];
+  do {
+    const page = await ddb.send(
+      new QueryCommand({
+        TableName: tableName,
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: { ":pk": pk },
+        ProjectionExpression: "sk",
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
+    for (const item of page.Items || []) {
+      if (typeof item.sk === "string") sortKeys.push(item.sk);
+    }
+    exclusiveStartKey = page.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+
+  for (let i = 0; i < sortKeys.length; i += 25) {
+    const batch = sortKeys.slice(i, i + 25);
+    await ddb.send(
+      new BatchWriteCommand({
+        RequestItems: {
+          [tableName]: batch.map((sk) => ({ DeleteRequest: { Key: { pk, sk } } })),
+        },
+      }),
+    );
+  }
+
+  if (!sortKeys.includes("CONFIG")) {
+    await ddb.send(new DeleteCommand({ TableName: tableName, Key: { pk, sk: "CONFIG" } }));
+  }
+
+  return { widgetId, deleted: sortKeys.length };
 }
 
 async function getDashboard(auth: AuthContext, event: APIGatewayProxyEventV2) {
